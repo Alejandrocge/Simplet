@@ -36,7 +36,7 @@ and nothing else:
 
 | Feature          | Detail                                                            |
 | ---------------- | ----------------------------------------------------------------- |
-| **Navigation**   | One big tile → Google Maps (with offline areas pre-downloaded).   |
+| **Navigation**   | One big tile → OsmAnd (offline maps, no Google dependency).        |
 | **Bluetooth audio** | Now-playing + play / pause / skip / volume from the iPhone.    |
 | **Connectivity** | Keep WiFi on, auto-reconnect to the iPhone hotspot, show status.  |
 
@@ -53,31 +53,41 @@ The launcher itself stays tiny and runs no background services of its own.
   share location. A cheap USB GPS dongle (u-blox-based) is the fallback if the
   internal GPS is weak. (Relaying the iPhone's GPS is impractical due to iOS
   sandboxing.)
-- **Primary nav app:** **Google Maps** with offline areas downloaded.
+- **Primary nav app:** **OsmAnd** (sideloaded APK, offline maps, no Google
+  dependency). Chosen over Google Maps because Maps hard-depends on Play
+  Services — the main RAM hog on this 1 GB-class unit — and can't be styled for
+  Phase 2. Switching to OsmAnd let us remove the Google account and starve the
+  Google stack.
 - **Lockdown method:** to be decided at implementation time. Leading option:
   ADB debloat + register Simplet as **device owner** for Lock Task / kiosk mode
   (no root). A plain launcher app cannot force-stop other apps on its own.
 
 ## Caveats to keep in mind
 
-1. **Google Maps needs Google Play Services.** Most of these units have the Play
-   Store, but some cheap ones do not. If absent, fall back to OsmAnd. **This is
-   the #1 thing to verify on the tablet.**
-2. **Offline Google Maps is limited:** offline areas expire (~15–30 days, need a
-   refresh over the hotspot), no live traffic offline, limited rerouting. Good
-   for known routes; the hotspot covers the rest.
-3. **The Phase-2 skin will not be a reskin of Google Maps** (Maps can't be
-   styled). It will be a separate styled map view.
+1. **OsmAnd routing/search is less polished than Google's**, and live traffic is
+   weak. Accepted trade-off for offline + no-Google + skinnable.
+2. **Install OsmAnd before removing the Google account.** OsmAnd is sideloaded
+   (APK from f-droid.org — the `OsmAnd~` build has unlimited offline maps free),
+   so it needs no Play Store; maps download once over the hotspot, then offline.
+3. **OsmAnd voice:** with Google TTS disabled, use a **recorded** voice so
+   turn-by-turn still speaks.
 
 ## Phase 2 (deferred)
 
-- **Custom "Minecraft-style" map skin.** Requires a styling engine, not Waze or
-  Google Maps. Candidate paths:
-  - **MapLibre / Mapbox** — vector tiles + a custom style JSON; most freedom for
-    a blocky, pixelated aesthetic.
-  - **OsmAnd** — OpenStreetMap-based, custom render styles, fully offline.
-- Sub-scope to decide later: cosmetic "follow-me" styled map (small) vs. full
-  turn-by-turn navigation with the skin baked in (large).
+- **Custom "Minecraft-style" map skin — simple 2D only.** Decided: built as an
+  **OsmAnd custom render style** (`.render.xml`), loaded on the device, fully
+  offline. Nav app is now OsmAnd, which makes this possible (Google Maps can't
+  be styled at all).
+- Scope (kept deliberately small):
+  - Flat **Minecraft palette** — green land, blue water, gray roads, dirt-brown
+    paths.
+  - **Blocky / pixel font** for labels (carries most of the Minecraft identity).
+  - **Decluttered** — hide most POIs, transport, and extra labels; show route +
+    essentials only. Lighter to render, which suits the low-RAM unit.
+  - Optional later: pixel-art POI icons.
+- **Out of scope:** a literal 3D voxel world (cubes, isometric blocks, textured
+  terrain). That would require a custom map engine (MapLibre + custom sprites) —
+  a separate, much larger project, not planned.
 
 ## Background-process control — reality
 
