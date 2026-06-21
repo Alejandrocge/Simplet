@@ -8,6 +8,11 @@ what's actually used in the car: **navigation** and **Bluetooth audio**.
 
 - **Vehicle:** Hyundai, 2019. Tablet is an **aftermarket Android head unit**
   (not the original system).
+- **Confirmed specs:** Android **10.0**, kernel **4.14.116**, Google **Play
+  Store + Maps** present (so sideloading works). SoC/RAM not exposed in the
+  unit's "about" screen; Android 10 + kernel 4.14.116 is consistent with
+  current-gen units (likely Unisoc UIS7862-class, octa-core, ~4–6 GB RAM),
+  which implies the lag is software bloat, not the CPU.
 - **Problems with it today:** extremely slow, no Apple CarPlay, mostly used as
   a Bluetooth speaker.
 - **The tablet has no internet of its own** — a phone provides connectivity.
@@ -33,7 +38,7 @@ and nothing else:
 | ---------------- | ----------------------------------------------------------------- |
 | **Navigation**   | One big tile → Google Maps (with offline areas pre-downloaded).   |
 | **Bluetooth audio** | Now-playing + play / pause / skip / volume from the iPhone.    |
-| **Connectivity** | Auto-enable WiFi and reconnect to the iPhone hotspot on boot.     |
+| **Connectivity** | Keep WiFi on, auto-reconnect to the iPhone hotspot, show status.  |
 
 The launcher itself stays tiny and runs no background services of its own.
 
@@ -88,12 +93,21 @@ non-rooted Android. The levers that actually work:
 4. **Root:** freeze anything (e.g. Greenify-style). Highest risk, usually
    unnecessary once 1–3 are in place.
 
-## Open items / needed before scaffolding
+## Open items
 
-- [ ] **Tablet Android version** (Settings → About → Android version).
-- [ ] **Does it have the Google Play Store / Play Services?**
-- [ ] **Can it sideload APKs?**
-- [ ] SoC / RAM (nice to know for performance expectations).
+- [x] **Tablet Android version** — Android 10.0 (kernel 4.14.116).
+- [x] **Google Play Store / Play Services?** — yes (Play Store + Maps present).
+- [x] **Can it sideload APKs?** — yes (has Play Store).
+- [ ] SoC / RAM — not exposed in the unit's UI. Get RAM via Developer options →
+      Memory; SoC via a CPU-Z / AIDA64 install. Nice to know, not blocking.
+
+### Android 10 constraint
+
+Regular apps **cannot programmatically toggle WiFi** on Android 10 (the
+`setWifiEnabled` API was removed for non-system apps). So "auto-enable WiFi"
+becomes: leave WiFi permanently on in the unit's settings and let the saved
+hotspot auto-reconnect; Simplet shows status only. Full WiFi control returns if
+Simplet is later made device owner. Target **minSdk 29** (Android 10).
 
 ## Architecture sketch (MVP)
 
