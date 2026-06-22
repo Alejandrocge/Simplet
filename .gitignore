@@ -7,5 +7,5 @@
 .externalNativeBuild
 .cxx
 local.properties
-app/build/
+nav/build/
 build/

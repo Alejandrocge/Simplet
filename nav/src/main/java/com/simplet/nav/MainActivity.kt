@@ -1,4 +1,4 @@
-package com.simplet
+package com.simplet.nav
 
 import android.Manifest
 import android.app.Activity
@@ -16,10 +16,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Proof build. Confirms three things on the actual head unit:
- *   1. A no-native-code APK installs and runs (the ABI wall is sidestepped).
- *   2. The exact CPU ABI list (so we stop guessing 32-bit vs 64-bit).
- *   3. GPS produces a fix, and a WebView/Leaflet map renders and follows it.
+ * Simplet navigation app shell.
+ *
+ * The map, search and (later) routing live in the bundled WebView page; Kotlin
+ * stays thin: it feeds GPS into the page and keeps a small diagnostic panel
+ * (ABI list + live fix) on screen during early bring-up so the real head unit
+ * still reports the things we need to confirm.
  */
 class MainActivity : Activity(), LocationListener {
 
@@ -28,14 +30,24 @@ class MainActivity : Activity(), LocationListener {
     private var mapReady = false
     private var lastLocation: Location? = null
 
+    @Suppress("DEPRECATION", "SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         status = findViewById(R.id.status)
         web = findViewById(R.id.web)
 
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            // The page is served from file:///android_asset, but it needs to fetch
+            // Nominatim/OSRM (other origins). Allow that for our own trusted assets.
+            allowFileAccess = true
+            allowContentAccess = true
+            allowUniversalAccessFromFileURLs = true
+            // Identify ourselves to OSM/Nominatim per their usage policy.
+            userAgentString = "$userAgentString Simplet/0.2 (+https://github.com/Alejandrocge/Simplet)"
+        }
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 mapReady = true
@@ -119,7 +131,7 @@ class MainActivity : Activity(), LocationListener {
     private fun render(msg: String) {
         val abis = Build.SUPPORTED_ABIS.joinToString(", ")
         status.text = buildString {
-            append("Simplet proof\n")
+            append("Simplet nav\n")
             append("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
             append("ABIs: $abis\n")
             append("Device: ${Build.MANUFACTURER} ${Build.MODEL}\n")

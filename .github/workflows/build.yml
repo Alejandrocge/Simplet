@@ -32,7 +32,7 @@ jobs:
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Stage APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk simplet-proof.apk
+        run: cp nav/build/outputs/apk/debug/nav-debug.apk simplet-proof.apk
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

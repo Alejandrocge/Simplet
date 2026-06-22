@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="leaflet/leaflet.css" />
+  <script src="leaflet/leaflet.js"></script>
+  <style>
+    html, body, #map { height: 100%; margin: 0; background: #0b0b0b; }
+    #map { position: absolute; inset: 0; }
+
+    /* Search overlay, sized for touch on a car screen */
+    #searchbar {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+      display: flex; gap: 8px; padding: 8px;
+      background: rgba(17,17,17,0.92);
+      font-family: sans-serif;
+    }
+    #q {
+      flex: 1; height: 46px; font-size: 17px; padding: 0 12px;
+      border: none; border-radius: 6px; outline: none;
+    }
+    #go {
+      height: 46px; min-width: 84px; font-size: 17px; border: none;
+      border-radius: 6px; background: #1e88e5; color: #fff;
+    }
+    #msg {
+      position: absolute; top: 62px; left: 8px; right: 8px; z-index: 1000;
+      color: #fff; font-family: sans-serif; font-size: 13px;
+      background: rgba(17,17,17,0.7); padding: 4px 8px; border-radius: 4px;
+      display: none;
+    }
+    #results {
+      position: absolute; top: 62px; left: 8px; right: 8px; z-index: 1001;
+      background: #fff; border-radius: 6px; overflow: auto; max-height: 50%;
+      font-family: sans-serif; display: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+    .result {
+      padding: 12px 14px; min-height: 24px; font-size: 15px;
+      border-bottom: 1px solid #eee; color: #111;
+    }
+    .result:active { background: #e3f2fd; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="searchbar">
+    <input id="q" type="text" placeholder="Search a destination…"
+           autocomplete="off" autocorrect="off" />
+    <button id="go">Search</button>
+  </div>
+  <div id="msg"></div>
+  <div id="results"></div>
+
+  <script>
+    L.Icon.Default.imagePath = 'leaflet/images/';
+
+    var map = L.map('map', { zoomControl: false })
+      .setView([20, 0], 2);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    var userMarker = null;
+    var destMarker = null;
+    var hasDest = false;
+
+    // ---- live GPS fix, pushed from Kotlin ----
+    window.setLocation = function (lat, lng) {
+      var ll = [lat, lng];
+      if (!userMarker) {
+        userMarker = L.circleMarker(ll, {
+          radius: 8, color: '#1e88e5', fillColor: '#1e88e5', fillOpacity: 0.9
+        }).addTo(map);
+      } else {
+        userMarker.setLatLng(ll);
+      }
+      // Follow the user until a destination is chosen, then leave the view alone.
+      if (!hasDest) map.setView(ll, 16);
+    };
+
+    // ---- destination search (Nominatim) ----
+    var msgEl = document.getElementById('msg');
+    var resultsEl = document.getElementById('results');
+
+    function setMsg(t) { msgEl.textContent = t; msgEl.style.display = t ? 'block' : 'none'; }
+    function hideResults() { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
+
+    async function search() {
+      var q = document.getElementById('q').value.trim();
+      if (!q) return;
+      hideResults();
+      setMsg('Searching “' + q + '”…');
+      try {
+        var url = 'https://nominatim.openstreetmap.org/search'
+          + '?format=json&limit=5&q=' + encodeURIComponent(q);
+        var res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) { setMsg('Search error: HTTP ' + res.status); return; }
+        var data = await res.json();
+        if (!data.length) { setMsg('No results for “' + q + '”'); return; }
+        setMsg(data.length + ' result(s) — tap one');
+        renderResults(data);
+      } catch (e) {
+        setMsg('Search failed: ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    function renderResults(items) {
+      resultsEl.innerHTML = '';
+      items.forEach(function (it) {
+        var row = document.createElement('div');
+        row.className = 'result';
+        row.textContent = it.display_name;
+        row.onclick = function () {
+          pickDestination(parseFloat(it.lat), parseFloat(it.lon), it.display_name);
+        };
+        resultsEl.appendChild(row);
+      });
+      resultsEl.style.display = 'block';
+    }
+
+    function pickDestination(lat, lon, name) {
+      hideResults();
+      var ll = [lat, lon];
+      if (!destMarker) {
+        destMarker = L.circleMarker(ll, {
+          radius: 9, color: '#e53935', fillColor: '#e53935', fillOpacity: 0.9
+        }).addTo(map);
+      } else {
+        destMarker.setLatLng(ll);
+      }
+      destMarker.bindPopup(name).openPopup();
+      hasDest = true;
+      if (userMarker) {
+        map.fitBounds(L.latLngBounds([userMarker.getLatLng(), ll]).pad(0.3));
+      } else {
+        map.setView(ll, 15);
+      }
+      var shortName = name.split(',')[0];
+      setMsg('Destination: ' + shortName + '  (routing comes next)');
+    }
+
+    document.getElementById('go').onclick = search;
+    document.getElementById('q').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); search(); }
+    });
+  </script>
+</body>
+</html>
