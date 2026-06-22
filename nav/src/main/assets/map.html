@@ -7,16 +7,11 @@
   <link rel="stylesheet" href="leaflet/leaflet.css" />
   <script src="leaflet/leaflet.js"></script>
   <style>
-    html, body, #map { height: 100%; margin: 0; background: #0b0b0b; }
-    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: column; background: #0b0b0b; font-family: sans-serif; }
 
-    /* Search overlay, sized for touch on a car screen */
-    #searchbar {
-      position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
-      display: flex; padding: 8px;
-      background: rgba(17,17,17,0.92);
-      font-family: sans-serif;
-    }
+    /* top bar */
+    #searchbar { flex: 0 0 auto; display: flex; padding: 8px; background: #111; }
     #q {
       flex: 1; height: 46px; font-size: 17px; padding: 0 12px; margin-right: 8px;
       border: none; border-radius: 6px; outline: none;
@@ -25,51 +20,47 @@
       height: 46px; min-width: 84px; font-size: 17px; border: none;
       border-radius: 6px; background: #1e88e5; color: #fff;
     }
+
+    /* map fills the middle */
+    #mapwrap { flex: 1 1 auto; position: relative; }
+    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+
     #msg {
-      position: absolute; top: 62px; left: 8px; right: 8px; z-index: 1000;
-      color: #fff; font-family: sans-serif; font-size: 13px;
-      background: rgba(17,17,17,0.7); padding: 4px 8px; border-radius: 4px;
-      display: none;
+      position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1000;
+      color: #fff; font-size: 13px; background: rgba(17,17,17,0.85);
+      padding: 6px 10px; border-radius: 4px; display: none;
     }
     #results {
-      position: absolute; top: 62px; left: 8px; right: 8px; z-index: 1001;
-      background: #fff; border-radius: 6px; overflow: auto; max-height: 50%;
-      font-family: sans-serif; display: none;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1001;
+      background: #fff; border-radius: 6px; overflow: auto; max-height: 70%;
+      display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     }
-    .result {
-      padding: 12px 14px; min-height: 24px; font-size: 15px;
-      border-bottom: 1px solid #eee; color: #111;
-    }
+    .result { padding: 12px 14px; font-size: 15px; border-bottom: 1px solid #eee; color: #111; }
     .result:active { background: #e3f2fd; }
 
-    /* Bottom guidance / navigation panel */
-    #nav {
-      position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000;
-      display: none; padding: 12px 14px;
-      background: rgba(17,17,17,0.94); color: #fff; font-family: sans-serif;
-    }
+    /* bottom guidance bar */
+    #nav { flex: 0 0 auto; display: none; padding: 12px 14px; background: #111; color: #fff; }
     #instruction { font-size: 20px; font-weight: 600; line-height: 1.25; }
     #navmeta { font-size: 14px; color: #b9c6d2; margin-top: 4px; }
     #navbtns { margin-top: 10px; display: flex; }
     #navbtns > * + * { margin-left: 8px; }
-    #navbtns button {
-      height: 44px; flex: 1; font-size: 16px; border: none; border-radius: 6px; color: #fff;
-    }
+    #navbtns button { height: 44px; flex: 1; font-size: 16px; border: none; border-radius: 6px; color: #fff; }
     #start { background: #2e7d32; }
     #end { background: #c62828; }
   </style>
 </head>
 <body>
-  <div id="map"></div>
-
   <div id="searchbar">
     <input id="q" type="text" placeholder="Search a destination…"
            autocomplete="off" autocorrect="off" />
     <button id="go">Search</button>
   </div>
-  <div id="msg"></div>
-  <div id="results"></div>
+
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="msg"></div>
+    <div id="results"></div>
+  </div>
 
   <div id="nav">
     <div id="instruction"></div>
@@ -87,28 +78,23 @@
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '© OpenStreetMap'
     }).addTo(map);
-
-    // Old WebViews sometimes lay the container out late; nudge Leaflet to remeasure.
     setTimeout(function () { map.invalidateSize(); }, 300);
 
     // ---------- state ----------
-    var userMarker = null;
-    var destMarker = null;
-    var routeLine = null;
+    var userMarker = null, destMarker = null, routeLine = null;
     var dest = null;          // [lat, lon]
     var steps = [];           // OSRM leg steps
     var routeCoords = [];     // [[lat,lon], ...] full geometry
-    var stepIndex = 0;        // step we are currently travelling along
-    var hasDest = false;
-    var navMode = false;
-    var lastReroute = 0;
+    var stepIndex = 0;
+    var hasDest = false, navMode = false;
+    var lastReroute = 0, deviceMsg = null;
 
-    // ---------- small helpers ----------
+    // ---------- helpers ----------
     function el(id) { return document.getElementById(id); }
     function setMsg(t) { el('msg').textContent = t || ''; el('msg').style.display = t ? 'block' : 'none'; }
     function setInstruction(t) { el('instruction').textContent = t || ''; }
     function setMeta(t) { el('navmeta').textContent = t || ''; }
-    function showNav(b) { el('nav').style.display = b ? 'block' : 'none'; }
+    function showNav(b) { el('nav').style.display = b ? 'block' : 'none'; map.invalidateSize(); }
     function hideResults() { el('results').style.display = 'none'; el('results').innerHTML = ''; }
     function toLL(latlng) { return [latlng.lat, latlng.lng]; }
     function manLL(step) { var l = step.maneuver.location; return [l[1], l[0]]; }
@@ -123,13 +109,8 @@
       return 2 * R * Math.asin(Math.sqrt(x));
     }
     function fmtDist(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'; }
-    function fmtDur(s) {
-      var m = Math.round(s / 60);
-      return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
-    }
-    function fmtClock(dt) {
-      return ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2);
-    }
+    function fmtDur(s) { var m = Math.round(s / 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
+    function fmtClock(dt) { return ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2); }
 
     function maneuverText(step) {
       var m = step.maneuver || {}, t = m.type || '', mod = m.modifier || '', name = step.name || '';
@@ -152,22 +133,22 @@
       return name ? phrase + ' onto ' + name : phrase;
     }
 
-    // ---------- live GPS fix, pushed from Kotlin ----------
+    // ---------- pushed from Kotlin ----------
+    window.setDeviceInfo = function (text) {
+      deviceMsg = text;
+      setMsg(text);
+      setTimeout(function () { if (el('msg').textContent === deviceMsg) setMsg(''); }, 6000);
+    };
+
     window.setLocation = function (lat, lng) {
       var ll = [lat, lng];
       if (!userMarker) {
-        userMarker = L.circleMarker(ll, {
-          radius: 8, color: '#1e88e5', fillColor: '#1e88e5', fillOpacity: 0.9
-        }).addTo(map);
+        userMarker = L.circleMarker(ll, { radius: 8, color: '#1e88e5', fillColor: '#1e88e5', fillOpacity: 0.9 }).addTo(map);
       } else {
         userMarker.setLatLng(ll);
       }
-      if (navMode) {
-        map.panTo(ll);
-        updateGuidance(ll);
-      } else if (!hasDest) {
-        map.setView(ll, 16);
-      }
+      if (navMode) { map.panTo(ll); updateGuidance(ll); }
+      else if (!hasDest) { map.setView(ll, 16); }
     };
 
     // ---------- search (Nominatim) ----------
@@ -177,8 +158,7 @@
       hideResults();
       setMsg('Searching “' + q + '”…');
       try {
-        var url = 'https://nominatim.openstreetmap.org/search'
-          + '?format=json&limit=5&q=' + encodeURIComponent(q);
+        var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q);
         var res = await fetch(url, { headers: { 'Accept': 'application/json' } });
         if (!res.ok) { setMsg('Search error: HTTP ' + res.status); return; }
         var data = await res.json();
@@ -197,9 +177,7 @@
         var row = document.createElement('div');
         row.className = 'result';
         row.textContent = it.display_name;
-        row.onclick = function () {
-          pickDestination(parseFloat(it.lat), parseFloat(it.lon), it.display_name);
-        };
+        row.onclick = function () { pickDestination(parseFloat(it.lat), parseFloat(it.lon), it.display_name); };
         box.appendChild(row);
       });
       box.style.display = 'block';
@@ -209,12 +187,9 @@
     function pickDestination(lat, lon, name) {
       hideResults();
       var ll = [lat, lon];
-      dest = ll;
-      hasDest = true;
+      dest = ll; hasDest = true;
       if (!destMarker) {
-        destMarker = L.circleMarker(ll, {
-          radius: 9, color: '#e53935', fillColor: '#e53935', fillOpacity: 0.9
-        }).addTo(map);
+        destMarker = L.circleMarker(ll, { radius: 9, color: '#e53935', fillColor: '#e53935', fillOpacity: 0.9 }).addTo(map);
       } else {
         destMarker.setLatLng(ll);
       }
@@ -229,9 +204,7 @@
       var res = await fetch(url);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var data = await res.json();
-      if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
-        throw new Error(data.code || 'no route');
-      }
+      if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error(data.code || 'no route');
       return data.routes[0];
     }
 
@@ -249,13 +222,13 @@
       try {
         var route = await fetchRoute(toLL(userMarker.getLatLng()), to);
         applyRoute(route);
-        map.fitBounds(routeLine.getBounds().pad(0.2));
         navMode = false;
         showNav(true);
         el('start').style.display = '';
         el('end').style.display = 'none';
         setInstruction('Route ready');
         setMeta(fmtDist(route.distance) + ' • ' + fmtDur(route.duration) + ' — press Start');
+        map.fitBounds(routeLine.getBounds().pad(0.2));
         setMsg('');
       } catch (e) {
         setMsg('Routing failed: ' + (e && e.message ? e.message : e));
@@ -265,8 +238,7 @@
     // ---------- turn-by-turn guidance ----------
     function startNav() {
       if (steps.length < 2) { setMsg('No route to follow yet'); return; }
-      navMode = true;
-      stepIndex = 0;
+      navMode = true; stepIndex = 0;
       el('start').style.display = 'none';
       el('end').style.display = '';
       if (userMarker) { map.setView(userMarker.getLatLng(), 17); updateGuidance(toLL(userMarker.getLatLng())); }
@@ -284,44 +256,29 @@
       if (!navMode || !pos || steps.length < 2) return;
       var lastIdx = steps.length - 1;
 
-      // Upcoming maneuver is the start of the next step.
       var tIdx = Math.min(stepIndex + 1, lastIdx);
       var d = haversine(pos, manLL(steps[tIdx]));
-
-      // Passed the maneuver point → advance to the next step.
       if (d < 25 && stepIndex < lastIdx) {
         stepIndex++;
         tIdx = Math.min(stepIndex + 1, lastIdx);
         d = haversine(pos, manLL(steps[tIdx]));
       }
 
-      // Arrival.
       if (stepIndex >= lastIdx - 1 && haversine(pos, manLL(steps[lastIdx])) < 30) {
-        setInstruction('🏁 You have arrived');
-        setMeta('');
-        return;
+        setInstruction('🏁 You have arrived'); setMeta(''); return;
       }
 
       setInstruction('In ' + fmtDist(d) + ' — ' + maneuverText(steps[tIdx]));
-
       var remDist = 0, remDur = 0;
-      for (var i = stepIndex; i < steps.length; i++) {
-        remDist += steps[i].distance || 0;
-        remDur += steps[i].duration || 0;
-      }
-      var eta = new Date(Date.now() + remDur * 1000);
-      setMeta('ETA ' + fmtClock(eta) + '  •  ' + fmtDist(remDist) + ' left  •  ' + fmtDur(remDur));
-
+      for (var i = stepIndex; i < steps.length; i++) { remDist += steps[i].distance || 0; remDur += steps[i].duration || 0; }
+      setMeta('ETA ' + fmtClock(new Date(Date.now() + remDur * 1000)) + '  •  ' + fmtDist(remDist) + ' left  •  ' + fmtDur(remDur));
       checkReroute(pos);
     }
 
     function checkReroute(pos) {
       if (!routeCoords.length || !dest) return;
       var min = Infinity;
-      for (var i = 0; i < routeCoords.length; i++) {
-        var dd = haversine(pos, routeCoords[i]);
-        if (dd < min) min = dd;
-      }
+      for (var i = 0; i < routeCoords.length; i++) { var dd = haversine(pos, routeCoords[i]); if (dd < min) min = dd; }
       if (min > 50 && Date.now() - lastReroute > 8000) {
         lastReroute = Date.now();
         setMsg('Off route — recalculating…');
@@ -335,9 +292,7 @@
     el('go').onclick = search;
     el('start').onclick = startNav;
     el('end').onclick = endNav;
-    el('q').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); search(); }
-    });
+    el('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); search(); } });
   </script>
 </body>
 </html>
