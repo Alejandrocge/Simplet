@@ -42,6 +42,21 @@
       border-bottom: 1px solid #eee; color: #111;
     }
     .result:active { background: #e3f2fd; }
+
+    /* Bottom guidance / navigation panel */
+    #nav {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000;
+      display: none; padding: 12px 14px;
+      background: rgba(17,17,17,0.94); color: #fff; font-family: sans-serif;
+    }
+    #instruction { font-size: 20px; font-weight: 600; line-height: 1.25; }
+    #navmeta { font-size: 14px; color: #b9c6d2; margin-top: 4px; }
+    #navbtns { margin-top: 10px; display: flex; gap: 8px; }
+    #navbtns button {
+      height: 44px; flex: 1; font-size: 16px; border: none; border-radius: 6px; color: #fff;
+    }
+    #start { background: #2e7d32; }
+    #end { background: #c62828; }
   </style>
 </head>
 <body>
@@ -55,21 +70,85 @@
   <div id="msg"></div>
   <div id="results"></div>
 
+  <div id="nav">
+    <div id="instruction"></div>
+    <div id="navmeta"></div>
+    <div id="navbtns">
+      <button id="start">Start</button>
+      <button id="end">End</button>
+    </div>
+  </div>
+
   <script>
     L.Icon.Default.imagePath = 'leaflet/images/';
 
-    var map = L.map('map', { zoomControl: false })
-      .setView([20, 0], 2);
+    var map = L.map('map', { zoomControl: false }).setView([20, 0], 2);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
+      maxZoom: 19, attribution: '© OpenStreetMap'
     }).addTo(map);
 
+    // ---------- state ----------
     var userMarker = null;
     var destMarker = null;
+    var routeLine = null;
+    var dest = null;          // [lat, lon]
+    var steps = [];           // OSRM leg steps
+    var routeCoords = [];     // [[lat,lon], ...] full geometry
+    var stepIndex = 0;        // step we are currently travelling along
     var hasDest = false;
+    var navMode = false;
+    var lastReroute = 0;
 
-    // ---- live GPS fix, pushed from Kotlin ----
+    // ---------- small helpers ----------
+    function el(id) { return document.getElementById(id); }
+    function setMsg(t) { el('msg').textContent = t || ''; el('msg').style.display = t ? 'block' : 'none'; }
+    function setInstruction(t) { el('instruction').textContent = t || ''; }
+    function setMeta(t) { el('navmeta').textContent = t || ''; }
+    function showNav(b) { el('nav').style.display = b ? 'block' : 'none'; }
+    function hideResults() { el('results').style.display = 'none'; el('results').innerHTML = ''; }
+    function toLL(latlng) { return [latlng.lat, latlng.lng]; }
+    function manLL(step) { var l = step.maneuver.location; return [l[1], l[0]]; }
+    function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+    function haversine(a, b) {
+      var R = 6371000, rad = Math.PI / 180;
+      var dLat = (b[0] - a[0]) * rad, dLng = (b[1] - a[1]) * rad;
+      var la1 = a[0] * rad, la2 = b[0] * rad;
+      var x = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+            + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      return 2 * R * Math.asin(Math.sqrt(x));
+    }
+    function fmtDist(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'; }
+    function fmtDur(s) {
+      var m = Math.round(s / 60);
+      return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    }
+    function fmtClock(dt) {
+      return ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2);
+    }
+
+    function maneuverText(step) {
+      var m = step.maneuver || {}, t = m.type || '', mod = m.modifier || '', name = step.name || '';
+      var phrase;
+      switch (t) {
+        case 'depart': phrase = 'Head out'; break;
+        case 'arrive': return 'Arrive at destination';
+        case 'turn': phrase = (mod === 'uturn') ? 'Make a U-turn' : 'Turn ' + mod; break;
+        case 'end of road': phrase = 'Turn ' + mod; break;
+        case 'fork': phrase = 'Keep ' + (mod || 'straight'); break;
+        case 'merge': phrase = 'Merge ' + mod; break;
+        case 'on ramp': phrase = 'Take the ramp ' + mod; break;
+        case 'off ramp': phrase = 'Take the exit ' + mod; break;
+        case 'roundabout':
+        case 'rotary': phrase = 'Take the roundabout' + (m.exit ? ', exit ' + m.exit : ''); break;
+        case 'continue': phrase = 'Continue' + (mod && mod !== 'straight' ? ' ' + mod : ''); break;
+        case 'new name': phrase = 'Continue'; break;
+        default: phrase = cap(t || 'Continue');
+      }
+      return name ? phrase + ' onto ' + name : phrase;
+    }
+
+    // ---------- live GPS fix, pushed from Kotlin ----------
     window.setLocation = function (lat, lng) {
       var ll = [lat, lng];
       if (!userMarker) {
@@ -79,19 +158,17 @@
       } else {
         userMarker.setLatLng(ll);
       }
-      // Follow the user until a destination is chosen, then leave the view alone.
-      if (!hasDest) map.setView(ll, 16);
+      if (navMode) {
+        map.panTo(ll);
+        updateGuidance(ll);
+      } else if (!hasDest) {
+        map.setView(ll, 16);
+      }
     };
 
-    // ---- destination search (Nominatim) ----
-    var msgEl = document.getElementById('msg');
-    var resultsEl = document.getElementById('results');
-
-    function setMsg(t) { msgEl.textContent = t; msgEl.style.display = t ? 'block' : 'none'; }
-    function hideResults() { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
-
+    // ---------- search (Nominatim) ----------
     async function search() {
-      var q = document.getElementById('q').value.trim();
+      var q = el('q').value.trim();
       if (!q) return;
       hideResults();
       setMsg('Searching “' + q + '”…');
@@ -110,7 +187,8 @@
     }
 
     function renderResults(items) {
-      resultsEl.innerHTML = '';
+      var box = el('results');
+      box.innerHTML = '';
       items.forEach(function (it) {
         var row = document.createElement('div');
         row.className = 'result';
@@ -118,14 +196,17 @@
         row.onclick = function () {
           pickDestination(parseFloat(it.lat), parseFloat(it.lon), it.display_name);
         };
-        resultsEl.appendChild(row);
+        box.appendChild(row);
       });
-      resultsEl.style.display = 'block';
+      box.style.display = 'block';
     }
 
+    // ---------- routing (OSRM) ----------
     function pickDestination(lat, lon, name) {
       hideResults();
       var ll = [lat, lon];
+      dest = ll;
+      hasDest = true;
       if (!destMarker) {
         destMarker = L.circleMarker(ll, {
           radius: 9, color: '#e53935', fillColor: '#e53935', fillOpacity: 0.9
@@ -133,19 +214,124 @@
       } else {
         destMarker.setLatLng(ll);
       }
-      destMarker.bindPopup(name).openPopup();
-      hasDest = true;
-      if (userMarker) {
-        map.fitBounds(L.latLngBounds([userMarker.getLatLng(), ll]).pad(0.3));
-      } else {
-        map.setView(ll, 15);
-      }
-      var shortName = name.split(',')[0];
-      setMsg('Destination: ' + shortName + '  (routing comes next)');
+      destMarker.bindPopup(name.split(',')[0]);
+      routeTo(ll);
     }
 
-    document.getElementById('go').onclick = search;
-    document.getElementById('q').addEventListener('keydown', function (e) {
+    async function fetchRoute(from, to) {
+      var url = 'https://router.project-osrm.org/route/v1/driving/'
+        + from[1] + ',' + from[0] + ';' + to[1] + ',' + to[0]
+        + '?overview=full&geometries=geojson&steps=true';
+      var res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
+        throw new Error(data.code || 'no route');
+      }
+      return data.routes[0];
+    }
+
+    function applyRoute(route) {
+      routeCoords = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+      steps = (route.legs && route.legs[0] && route.legs[0].steps) ? route.legs[0].steps : [];
+      stepIndex = 0;
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(routeCoords, { color: '#1e88e5', weight: 6, opacity: 0.85 }).addTo(map);
+    }
+
+    async function routeTo(to) {
+      if (!userMarker) { setMsg('Waiting for your location — set it, then pick the destination again'); return; }
+      setMsg('Finding route…');
+      try {
+        var route = await fetchRoute(toLL(userMarker.getLatLng()), to);
+        applyRoute(route);
+        map.fitBounds(routeLine.getBounds().pad(0.2));
+        navMode = false;
+        showNav(true);
+        el('start').style.display = '';
+        el('end').style.display = 'none';
+        setInstruction('Route ready');
+        setMeta(fmtDist(route.distance) + ' • ' + fmtDur(route.duration) + ' — press Start');
+        setMsg('');
+      } catch (e) {
+        setMsg('Routing failed: ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    // ---------- turn-by-turn guidance ----------
+    function startNav() {
+      if (steps.length < 2) { setMsg('No route to follow yet'); return; }
+      navMode = true;
+      stepIndex = 0;
+      el('start').style.display = 'none';
+      el('end').style.display = '';
+      if (userMarker) { map.setView(userMarker.getLatLng(), 17); updateGuidance(toLL(userMarker.getLatLng())); }
+    }
+
+    function endNav() {
+      navMode = false; hasDest = false; dest = null; steps = []; routeCoords = [];
+      if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+      if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+      showNav(false);
+      setMsg('Navigation ended');
+    }
+
+    function updateGuidance(pos) {
+      if (!navMode || !pos || steps.length < 2) return;
+      var lastIdx = steps.length - 1;
+
+      // Upcoming maneuver is the start of the next step.
+      var tIdx = Math.min(stepIndex + 1, lastIdx);
+      var d = haversine(pos, manLL(steps[tIdx]));
+
+      // Passed the maneuver point → advance to the next step.
+      if (d < 25 && stepIndex < lastIdx) {
+        stepIndex++;
+        tIdx = Math.min(stepIndex + 1, lastIdx);
+        d = haversine(pos, manLL(steps[tIdx]));
+      }
+
+      // Arrival.
+      if (stepIndex >= lastIdx - 1 && haversine(pos, manLL(steps[lastIdx])) < 30) {
+        setInstruction('🏁 You have arrived');
+        setMeta('');
+        return;
+      }
+
+      setInstruction('In ' + fmtDist(d) + ' — ' + maneuverText(steps[tIdx]));
+
+      var remDist = 0, remDur = 0;
+      for (var i = stepIndex; i < steps.length; i++) {
+        remDist += steps[i].distance || 0;
+        remDur += steps[i].duration || 0;
+      }
+      var eta = new Date(Date.now() + remDur * 1000);
+      setMeta('ETA ' + fmtClock(eta) + '  •  ' + fmtDist(remDist) + ' left  •  ' + fmtDur(remDur));
+
+      checkReroute(pos);
+    }
+
+    function checkReroute(pos) {
+      if (!routeCoords.length || !dest) return;
+      var min = Infinity;
+      for (var i = 0; i < routeCoords.length; i++) {
+        var dd = haversine(pos, routeCoords[i]);
+        if (dd < min) min = dd;
+      }
+      if (min > 50 && Date.now() - lastReroute > 8000) {
+        lastReroute = Date.now();
+        setMsg('Off route — recalculating…');
+        fetchRoute(pos, dest)
+          .then(function (r) { applyRoute(r); setMsg(''); })
+          .catch(function (e) { setMsg('Re-route failed: ' + (e && e.message ? e.message : e)); });
+      }
+    }
+
+    // ---------- wire up ----------
+    el('go').onclick = search;
+    el('start').onclick = startNav;
+    el('end').onclick = endNav;
+    el('q').addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); search(); }
     });
   </script>

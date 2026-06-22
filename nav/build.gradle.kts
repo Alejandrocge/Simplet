@@ -11,8 +11,8 @@ android {
         applicationId = "com.simplet.nav"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0-nav"
+        versionCode = 3
+        versionName = "0.3.0-nav"
     }
 
     buildTypes {
