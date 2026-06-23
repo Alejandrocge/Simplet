@@ -38,8 +38,12 @@
     .result { padding: 12px 14px; font-size: 15px; border-bottom: 1px solid #eee; color: #111; }
     .result:active { background: #e3f2fd; }
 
-    /* bottom guidance bar */
-    #nav { flex: 0 0 auto; display: none; padding: 12px 14px; background: #111; color: #fff; }
+    /* bottom guidance bar — translateZ keeps it on its own composited layer so
+       old WebViews repaint it reliably when shown/updated */
+    #nav {
+      flex: 0 0 auto; display: none; padding: 12px 14px; background: #111; color: #fff;
+      -webkit-transform: translateZ(0); transform: translateZ(0);
+    }
     #instruction { font-size: 20px; font-weight: 600; line-height: 1.25; }
     #navmeta { font-size: 14px; color: #b9c6d2; margin-top: 4px; }
     /* Start and End are never shown together, so each is a simple full-width
@@ -96,10 +100,28 @@
 
     // ---------- helpers ----------
     function el(id) { return document.getElementById(id); }
-    function setMsg(t) { el('msg').textContent = t || ''; el('msg').style.display = t ? 'block' : 'none'; }
+    function forceRepaint(node) {
+      // Old WebViews defer painting dynamically shown elements until the next
+      // reflow/composite (focusing the search box was triggering it). Toggling
+      // opacity with a reflow in between forces the layer to paint now.
+      if (!node) return;
+      node.style.opacity = '0';
+      void node.offsetHeight;
+      node.style.opacity = '1';
+    }
+    function setMsg(t) { el('msg').textContent = t || ''; el('msg').style.display = t ? 'block' : 'none'; if (t) forceRepaint(el('msg')); }
     function setInstruction(t) { el('instruction').textContent = t || ''; }
     function setMeta(t) { el('navmeta').textContent = t || ''; }
-    function showNav(b) { el('nav').style.display = b ? 'block' : 'none'; map.invalidateSize(); }
+    function showNav(b) {
+      el('nav').style.display = b ? 'block' : 'none';
+      map.invalidateSize();
+      forceRepaint(b ? el('nav') : document.body);
+    }
+    function setNavButtons(mode) { // 'start' | 'end'
+      el('start').style.display = (mode === 'start') ? 'block' : 'none';
+      el('end').style.display = (mode === 'end') ? 'block' : 'none';
+      forceRepaint(el('nav'));
+    }
     function hideResults() { el('results').style.display = 'none'; el('results').innerHTML = ''; }
     function toLL(latlng) { return [latlng.lat, latlng.lng]; }
     function manLL(step) { var l = step.maneuver.location; return [l[1], l[0]]; }
@@ -164,12 +186,25 @@
       hideResults();
       setMsg('Searching “' + q + '”…');
       try {
-        var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q);
+        var here = userMarker ? toLL(userMarker.getLatLng()) : null;
+        var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=8&q=' + encodeURIComponent(q);
+        if (here) {
+          // Bias results toward a box around the current location (soft preference).
+          var d = 1.5;
+          url += '&viewbox=' + (here[1] - d) + ',' + (here[0] + d) + ',' + (here[1] + d) + ',' + (here[0] - d) + '&bounded=0';
+        }
         var res = await fetch(url, { headers: { 'Accept': 'application/json' } });
         if (!res.ok) { setMsg('Search error: HTTP ' + res.status); return; }
         var data = await res.json();
         if (!data.length) { setMsg('No results for “' + q + '”'); return; }
-        setMsg(data.length + ' result(s) — tap one');
+        if (here) {
+          // Sort closest-first so nearby (in-country) places come before far ones.
+          data.forEach(function (it) { it._d = haversine(here, [parseFloat(it.lat), parseFloat(it.lon)]); });
+          data.sort(function (a, b) { return a._d - b._d; });
+          setMsg(data.length + ' result(s) — closest first');
+        } else {
+          setMsg(data.length + ' result(s) — tap one');
+        }
         renderResults(data);
       } catch (e) {
         setMsg('Search failed: ' + (e && e.message ? e.message : e));
@@ -182,7 +217,7 @@
       items.forEach(function (it) {
         var row = document.createElement('div');
         row.className = 'result';
-        row.textContent = it.display_name;
+        row.textContent = (typeof it._d === 'number' ? '(' + fmtDist(it._d) + ')  ' : '') + it.display_name;
         row.onclick = function () { pickDestination(parseFloat(it.lat), parseFloat(it.lon), it.display_name); };
         box.appendChild(row);
       });

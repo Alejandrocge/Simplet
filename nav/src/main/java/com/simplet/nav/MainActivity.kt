@@ -8,6 +8,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -29,6 +30,12 @@ class MainActivity : Activity(), LocationListener {
         setContentView(R.layout.activity_main)
         web = findViewById(R.id.web)
 
+        // Render the WebView in software. On some Android-10 / emulator GPUs the
+        // hardware layer does not present frames until an input event, leaving the
+        // map and controls black/blank until tapped. Software rendering is reliable
+        // (we can revisit for performance once the real unit is verified).
+        web.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -46,8 +53,10 @@ class MainActivity : Activity(), LocationListener {
         }
         web.loadUrl("file:///android_asset/map.html")
 
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
+        // Runtime permissions only exist on API 23+; below that they are granted
+        // at install time, so just start.
+        if (Build.VERSION.SDK_INT >= 23 &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(
                 arrayOf(
