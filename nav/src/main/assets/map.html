@@ -83,9 +83,17 @@
   <script>
     L.Icon.Default.imagePath = 'leaflet/images/';
 
-    var map = L.map('map', { zoomControl: false }).setView([20, 0], 2);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '© OpenStreetMap'
+    var map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([20, 0], 2);
+    // Light, streets-focused raster tiles (CARTO Positron): far less detail and
+    // far fewer bytes than full OpenStreetMap — easier on a weak unit and a
+    // metered hotspot. keepBuffer/detectRetina trimmed to load fewer tiles.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+      subdomains: 'abcd',
+      maxZoom: 19,
+      detectRetina: false,
+      updateWhenZooming: false,
+      keepBuffer: 1,
+      attribution: '© OpenStreetMap, © CARTO'
     }).addTo(map);
     setTimeout(function () { map.invalidateSize(); }, 300);
 

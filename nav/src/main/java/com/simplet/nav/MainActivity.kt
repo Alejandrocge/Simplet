@@ -23,6 +23,7 @@ class MainActivity : Activity(), LocationListener {
     private lateinit var web: WebView
     private var mapReady = false
     private var lastLocation: Location? = null
+    private var lastGpsFixAt = 0L
 
     @Suppress("DEPRECATION", "SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,6 +97,11 @@ class MainActivity : Activity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        val now = System.currentTimeMillis()
+        if (location.provider == LocationManager.GPS_PROVIDER) lastGpsFixAt = now
+        // Ignore coarse network fixes while a fresh GPS fix is available, so the
+        // position marker doesn't jump between accurate and approximate fixes.
+        if (location.provider == LocationManager.NETWORK_PROVIDER && now - lastGpsFixAt < 15000) return
         lastLocation = location
         if (mapReady) pushLocation(location)
     }
