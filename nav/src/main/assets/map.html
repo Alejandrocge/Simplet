@@ -25,6 +25,14 @@
     #mapwrap { flex: 1 1 auto; position: relative; }
     #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
 
+    /* Fixed position dot shown during navigation: the map glides under it. */
+    #centerdot {
+      position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
+      margin: -8px 0 0 -8px; border-radius: 50%;
+      background: #1e88e5; border: 2px solid #fff; box-shadow: 0 0 5px rgba(0,0,0,.5);
+      z-index: 500; display: none; pointer-events: none;
+    }
+
     #msg {
       position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1000;
       color: #fff; font-size: 13px; background: rgba(17,17,17,0.85);
@@ -67,6 +75,7 @@
 
   <div id="mapwrap">
     <div id="map"></div>
+    <div id="centerdot"></div>
     <div id="msg"></div>
     <div id="results"></div>
   </div>
@@ -104,7 +113,7 @@
     var routeCoords = [];     // [[lat,lon], ...] full geometry
     var stepIndex = 0;
     var hasDest = false, navMode = false;
-    var lastReroute = 0, deviceMsg = null;
+    var lastReroute = 0, deviceMsg = null, lastFixT = 0;
 
     // ---------- helpers ----------
     function el(id) { return document.getElementById(id); }
@@ -174,8 +183,17 @@
       } else {
         userMarker.setLatLng(ll);
       }
-      if (navMode) { map.panTo(ll); updateGuidance(ll); }
-      else if (!hasDest) { map.setView(ll, 16); }
+      if (navMode) {
+        // Glide the map under the fixed centre dot. Match the glide to the actual
+        // GPS interval so motion is continuous instead of pan-then-pause.
+        var now = Date.now();
+        var dur = lastFixT ? Math.min(2.5, Math.max(0.5, (now - lastFixT) / 1000)) : 1.0;
+        lastFixT = now;
+        map.panTo(ll, { animate: true, duration: dur, easeLinearity: 1.0, noMoveStart: true });
+        updateGuidance(ll);
+      } else if (!hasDest) {
+        map.setView(ll, 16);
+      }
     };
 
     // ---------- search (Nominatim) ----------
@@ -286,13 +304,18 @@
     // ---------- turn-by-turn guidance ----------
     function startNav() {
       if (maneuvers.length < 2) { setMsg('No route to follow yet'); return; }
-      navMode = true; stepIndex = 0;
+      navMode = true; stepIndex = 0; lastFixT = 0;
       setNavButtons('end');
+      // Position is shown by the fixed centre dot; hide the moving marker.
+      el('centerdot').style.display = 'block';
+      if (userMarker) userMarker.setStyle({ opacity: 0, fillOpacity: 0 });
       if (userMarker) { map.setView(userMarker.getLatLng(), 17); updateGuidance(toLL(userMarker.getLatLng())); }
     }
 
     function endNav() {
       navMode = false; hasDest = false; dest = null; maneuvers = []; routeCoords = [];
+      el('centerdot').style.display = 'none';
+      if (userMarker) userMarker.setStyle({ opacity: 1, fillOpacity: 0.9 });
       if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
       if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
       showNav(false);
