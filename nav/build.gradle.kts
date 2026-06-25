@@ -11,8 +11,20 @@ android {
         applicationId = "com.simplet.nav"
         minSdk = 21
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.7.0-nav"
+        versionCode = 8
+        versionName = "0.8.0-nav"
+    }
+
+    signingConfigs {
+        // Committed key so every CI build shares one signature and installs in place.
+        getByName("debug") {
+            storeFile = file("simplet.keystore")
+            storePassword = "simplet"
+            keyAlias = "simplet"
+            keyPassword = "simplet"
+            enableV1Signing = true
+            enableV2Signing = true
+        }
     }
 
     buildTypes {

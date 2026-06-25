@@ -100,7 +100,7 @@
     // ---------- state ----------
     var userMarker = null, destMarker = null, routeLine = null;
     var dest = null;          // [lat, lon]
-    var steps = [];           // OSRM leg steps
+    var maneuvers = [];       // Valhalla leg maneuvers
     var routeCoords = [];     // [[lat,lon], ...] full geometry
     var stepIndex = 0;
     var hasDest = false, navMode = false;
@@ -132,8 +132,21 @@
     }
     function hideResults() { el('results').style.display = 'none'; el('results').innerHTML = ''; }
     function toLL(latlng) { return [latlng.lat, latlng.lng]; }
-    function manLL(step) { var l = step.maneuver.location; return [l[1], l[0]]; }
-    function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+    function decodePolyline(str, precision) {
+      // Valhalla returns the route shape as a polyline encoded at 1e6 precision.
+      var index = 0, lat = 0, lng = 0, out = [], shift, result, byte, factor = Math.pow(10, precision || 6);
+      while (index < str.length) {
+        shift = 0; result = 0;
+        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+        shift = 0; result = 0;
+        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+        out.push([lat / factor, lng / factor]);
+      }
+      return out;
+    }
 
     function haversine(a, b) {
       var R = 6371000, rad = Math.PI / 180;
@@ -146,27 +159,6 @@
     function fmtDist(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'; }
     function fmtDur(s) { var m = Math.round(s / 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
     function fmtClock(dt) { return ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2); }
-
-    function maneuverText(step) {
-      var m = step.maneuver || {}, t = m.type || '', mod = m.modifier || '', name = step.name || '';
-      var phrase;
-      switch (t) {
-        case 'depart': phrase = 'Head out'; break;
-        case 'arrive': return 'Arrive at destination';
-        case 'turn': phrase = (mod === 'uturn') ? 'Make a U-turn' : 'Turn ' + mod; break;
-        case 'end of road': phrase = 'Turn ' + mod; break;
-        case 'fork': phrase = 'Keep ' + (mod || 'straight'); break;
-        case 'merge': phrase = 'Merge ' + mod; break;
-        case 'on ramp': phrase = 'Take the ramp ' + mod; break;
-        case 'off ramp': phrase = 'Take the exit ' + mod; break;
-        case 'roundabout':
-        case 'rotary': phrase = 'Take the roundabout' + (m.exit ? ', exit ' + m.exit : ''); break;
-        case 'continue': phrase = 'Continue' + (mod && mod !== 'straight' ? ' ' + mod : ''); break;
-        case 'new name': phrase = 'Continue'; break;
-        default: phrase = cap(t || 'Continue');
-      }
-      return name ? phrase + ' onto ' + name : phrase;
-    }
 
     // ---------- pushed from Kotlin ----------
     window.setDeviceInfo = function (text) {
@@ -232,7 +224,7 @@
       box.style.display = 'block';
     }
 
-    // ---------- routing (OSRM) ----------
+    // ---------- routing (Valhalla) ----------
     function pickDestination(lat, lon, name) {
       hideResults();
       el('q').blur();
@@ -248,19 +240,26 @@
     }
 
     async function fetchRoute(from, to) {
-      var url = 'https://router.project-osrm.org/route/v1/driving/'
-        + from[1] + ',' + from[0] + ';' + to[1] + ',' + to[0]
-        + '?overview=full&geometries=geojson&steps=true';
+      // GET with a json= param avoids a CORS preflight (vs POST).
+      var req = {
+        locations: [{ lat: from[0], lon: from[1] }, { lat: to[0], lon: to[1] }],
+        costing: 'auto',
+        directions_options: { units: 'kilometers' }
+      };
+      var url = 'https://valhalla1.openstreetmap.de/route?json=' + encodeURIComponent(JSON.stringify(req));
       var res = await fetch(url);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var data = await res.json();
-      if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error(data.code || 'no route');
-      return data.routes[0];
+      if (!data.trip || data.trip.status !== 0 || !data.trip.legs || !data.trip.legs.length) {
+        throw new Error((data.trip && data.trip.status_message) || 'no route');
+      }
+      return data.trip;
     }
 
-    function applyRoute(route) {
-      routeCoords = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
-      steps = (route.legs && route.legs[0] && route.legs[0].steps) ? route.legs[0].steps : [];
+    function applyRoute(trip) {
+      var leg = trip.legs[0];
+      routeCoords = decodePolyline(leg.shape, 6);   // [[lat,lon], ...]
+      maneuvers = leg.maneuvers || [];
       stepIndex = 0;
       if (routeLine) map.removeLayer(routeLine);
       routeLine = L.polyline(routeCoords, { color: '#1e88e5', weight: 6, opacity: 0.85 }).addTo(map);
@@ -270,14 +269,13 @@
       if (!userMarker) { setMsg('Waiting for your location — set it, then pick the destination again'); return; }
       setMsg('Finding route…');
       try {
-        var route = await fetchRoute(toLL(userMarker.getLatLng()), to);
-        applyRoute(route);
+        var trip = await fetchRoute(toLL(userMarker.getLatLng()), to);
+        applyRoute(trip);
         navMode = false;
         showNav(true);
-        el('start').style.display = '';
-        el('end').style.display = 'none';
         setInstruction('Route ready');
-        setMeta(fmtDist(route.distance) + ' • ' + fmtDur(route.duration) + ' — press Start');
+        setMeta(fmtDist((trip.summary.length || 0) * 1000) + ' • ' + fmtDur(trip.summary.time || 0) + ' — press Start');
+        setNavButtons('start');
         map.fitBounds(routeLine.getBounds().pad(0.2));
         setMsg('');
       } catch (e) {
@@ -287,40 +285,47 @@
 
     // ---------- turn-by-turn guidance ----------
     function startNav() {
-      if (steps.length < 2) { setMsg('No route to follow yet'); return; }
+      if (maneuvers.length < 2) { setMsg('No route to follow yet'); return; }
       navMode = true; stepIndex = 0;
-      el('start').style.display = 'none';
-      el('end').style.display = '';
+      setNavButtons('end');
       if (userMarker) { map.setView(userMarker.getLatLng(), 17); updateGuidance(toLL(userMarker.getLatLng())); }
     }
 
     function endNav() {
-      navMode = false; hasDest = false; dest = null; steps = []; routeCoords = [];
+      navMode = false; hasDest = false; dest = null; maneuvers = []; routeCoords = [];
       if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
       if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
       showNav(false);
       setMsg('Navigation ended');
     }
 
+    // Valhalla maneuver i begins at routeCoords[begin_shape_index] and carries a
+    // ready-made instruction string ("Turn left onto Main Street.").
+    function maneuverPoint(m) { return routeCoords[m.begin_shape_index] || routeCoords[0]; }
+
     function updateGuidance(pos) {
-      if (!navMode || !pos || steps.length < 2) return;
-      var lastIdx = steps.length - 1;
+      if (!navMode || !pos || maneuvers.length < 2) return;
+      var lastIdx = maneuvers.length - 1;
 
       var tIdx = Math.min(stepIndex + 1, lastIdx);
-      var d = haversine(pos, manLL(steps[tIdx]));
+      var d = haversine(pos, maneuverPoint(maneuvers[tIdx]));
       if (d < 25 && stepIndex < lastIdx) {
         stepIndex++;
         tIdx = Math.min(stepIndex + 1, lastIdx);
-        d = haversine(pos, manLL(steps[tIdx]));
+        d = haversine(pos, maneuverPoint(maneuvers[tIdx]));
       }
 
-      if (stepIndex >= lastIdx - 1 && haversine(pos, manLL(steps[lastIdx])) < 30) {
+      var destPt = routeCoords[routeCoords.length - 1];
+      if (stepIndex >= lastIdx - 1 && haversine(pos, destPt) < 30) {
         setInstruction('🏁 You have arrived'); setMeta(''); return;
       }
 
-      setInstruction('In ' + fmtDist(d) + ' — ' + maneuverText(steps[tIdx]));
+      setInstruction('In ' + fmtDist(d) + ' — ' + (maneuvers[tIdx].instruction || 'Continue'));
       var remDist = 0, remDur = 0;
-      for (var i = stepIndex; i < steps.length; i++) { remDist += steps[i].distance || 0; remDur += steps[i].duration || 0; }
+      for (var i = stepIndex; i < maneuvers.length; i++) {
+        remDist += (maneuvers[i].length || 0) * 1000;
+        remDur += maneuvers[i].time || 0;
+      }
       setMeta('ETA ' + fmtClock(new Date(Date.now() + remDur * 1000)) + '  •  ' + fmtDist(remDist) + ' left  •  ' + fmtDur(remDur));
       checkReroute(pos);
     }
