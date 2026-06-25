@@ -7,63 +7,91 @@
   <link rel="stylesheet" href="leaflet/leaflet.css" />
   <script src="leaflet/leaflet.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; }
-    body { display: flex; flex-direction: column; background: #0b0b0b; font-family: sans-serif; }
+    @font-face {
+      font-family: 'VT323';
+      src: url('fonts/vt323.woff2') format('woff2'), url('fonts/vt323.woff') format('woff');
+      font-display: swap;
+    }
 
-    /* top bar */
-    #searchbar { flex: 0 0 auto; display: flex; padding: 8px; background: #111; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; flex-direction: column; background: #2b2b2b;
+      font-family: 'VT323', monospace; color: #f4f4f4;
+    }
+
+    /* Minecraft GUI bevel: light top-left, dark bottom-right. */
+    .bevel { box-shadow: inset 2px 2px 0 0 rgba(255,255,255,0.22), inset -2px -2px 0 0 rgba(0,0,0,0.5); }
+
+    /* top bar — stone */
+    #searchbar { flex: 0 0 auto; display: flex; padding: 8px; background: #6b6b6b; }
     #q {
-      flex: 1; height: 46px; font-size: 17px; padding: 0 12px; margin-right: 8px;
-      border: none; border-radius: 6px; outline: none; -webkit-appearance: none;
+      flex: 1; height: 48px; font-size: 24px; padding: 0 12px; margin-right: 8px;
+      border: none; border-radius: 0; outline: none; -webkit-appearance: none;
+      font-family: 'VT323', monospace; color: #1a1a1a; background: #c8c8c8;
+      box-shadow: inset 2px 2px 0 0 rgba(0,0,0,0.45), inset -2px -2px 0 0 rgba(255,255,255,0.55);
     }
     #go {
-      height: 46px; min-width: 84px; font-size: 17px; border: none;
-      border-radius: 6px; background: #1e88e5; color: #fff; -webkit-appearance: none;
+      height: 48px; min-width: 92px; font-size: 22px; border: none; border-radius: 0;
+      -webkit-appearance: none; font-family: 'VT323', monospace; color: #f4f4f4;
+      background: #7a7a7a; text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+      box-shadow: inset 2px 2px 0 0 rgba(255,255,255,0.22), inset -2px -2px 0 0 rgba(0,0,0,0.5);
+    }
+    #go:active, #navbtns button:active {
+      box-shadow: inset -2px -2px 0 0 rgba(255,255,255,0.22), inset 2px 2px 0 0 rgba(0,0,0,0.5);
     }
 
-    /* map fills the middle */
+    /* map fills the middle; green shows through while tiles load */
     #mapwrap { flex: 1 1 auto; position: relative; }
-    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #5fae3a; }
 
-    /* Fixed position dot shown during navigation: the map glides under it. */
+    /* blocky, earthy-tinted basemap */
+    .leaflet-tile { image-rendering: pixelated; }
+    .leaflet-tile-pane { filter: saturate(1.55) sepia(0.35) hue-rotate(42deg) brightness(0.98) contrast(1.06); }
+
+    /* square (blocky) position dot */
     #centerdot {
       position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
-      margin: -8px 0 0 -8px; border-radius: 50%;
-      background: #1e88e5; border: 2px solid #fff; box-shadow: 0 0 5px rgba(0,0,0,.5);
+      margin: -8px 0 0 -8px; border-radius: 0;
+      background: #3aa0ff; border: 3px solid #f4f4f4; box-shadow: 0 0 0 2px #1a1a1a;
       z-index: 500; display: none; pointer-events: none;
     }
 
     #msg {
       position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1000;
-      color: #fff; font-size: 13px; background: rgba(17,17,17,0.85);
-      padding: 6px 10px; border-radius: 4px; display: none;
+      color: #f4f4f4; font-size: 19px; background: #3a3a3a; padding: 6px 10px;
+      border-radius: 0; display: none; text-shadow: 1px 1px 0 rgba(0,0,0,0.6);
+      box-shadow: inset 2px 2px 0 0 rgba(255,255,255,0.18), inset -2px -2px 0 0 rgba(0,0,0,0.5);
     }
     #results {
       position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1001;
-      background: #fff; border-radius: 6px; overflow: auto; max-height: 70%;
-      display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      background: #3a3a3a; border-radius: 0; overflow: auto; max-height: 70%; display: none;
+      box-shadow: inset 2px 2px 0 0 rgba(255,255,255,0.18), inset -2px -2px 0 0 rgba(0,0,0,0.5);
     }
-    .result { padding: 12px 14px; font-size: 15px; border-bottom: 1px solid #eee; color: #111; }
-    .result:active { background: #e3f2fd; }
+    .result {
+      padding: 12px 14px; font-size: 20px; color: #f4f4f4;
+      border-bottom: 2px solid #2b2b2b; text-shadow: 1px 1px 0 rgba(0,0,0,0.6);
+    }
+    .result:active { background: #4a8f2a; }
 
-    /* bottom guidance bar — translateZ keeps it on its own composited layer so
-       old WebViews repaint it reliably when shown/updated */
+    /* bottom guidance bar — dirt */
     #nav {
-      flex: 0 0 auto; display: none; padding: 12px 14px; background: #111; color: #fff;
+      flex: 0 0 auto; display: none; padding: 12px 14px; background: #6b4f2a; color: #f4f4f4;
       -webkit-transform: translateZ(0); transform: translateZ(0);
+      box-shadow: inset 2px 2px 0 0 rgba(255,255,255,0.18), inset -2px -2px 0 0 rgba(0,0,0,0.5);
     }
-    #instruction { font-size: 20px; font-weight: 600; line-height: 1.25; }
-    #navmeta { font-size: 14px; color: #b9c6d2; margin-top: 4px; }
-    /* Start and End are never shown together, so each is a simple full-width
-       block button — avoids the zero-width flex:1 bug on old WebViews. */
+    #instruction { font-size: 28px; line-height: 1.1; text-shadow: 2px 2px 0 rgba(0,0,0,0.55); }
+    #navmeta { font-size: 20px; color: #e6d8b0; margin-top: 4px; text-shadow: 1px 1px 0 rgba(0,0,0,0.55); }
+    /* Start and End never show together, so each is a full-width block button. */
     #navbtns { margin-top: 10px; }
     #navbtns button {
       -webkit-appearance: none; appearance: none;
-      display: block; width: 100%; height: 50px;
-      font-size: 17px; border: none; border-radius: 6px; color: #fff;
+      display: block; width: 100%; height: 54px; border: none; border-radius: 0;
+      font-family: 'VT323', monospace; font-size: 26px; color: #f4f4f4;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+      box-shadow: inset 2px 2px 0 0 rgba(255,255,255,0.22), inset -2px -2px 0 0 rgba(0,0,0,0.5);
     }
-    #start { background: #2e7d32; }
-    #end { background: #c62828; }
+    #start { background: #4a8f2a; }
+    #end { background: #a33636; }
   </style>
 </head>
 <body>
@@ -102,6 +130,10 @@
       detectRetina: false,
       updateWhenZooming: false,
       keepBuffer: 1,
+      // Pull tiles one zoom lower and upscale them: chunky "blocks" (with the
+      // pixelated CSS) and a quarter as many tiles to fetch.
+      tileSize: 512,
+      zoomOffset: -1,
       attribution: '© OpenStreetMap, © CARTO'
     }).addTo(map);
     setTimeout(function () { map.invalidateSize(); }, 300);
@@ -280,7 +312,7 @@
       maneuvers = leg.maneuvers || [];
       stepIndex = 0;
       if (routeLine) map.removeLayer(routeLine);
-      routeLine = L.polyline(routeCoords, { color: '#1e88e5', weight: 6, opacity: 0.85 }).addTo(map);
+      routeLine = L.polyline(routeCoords, { color: '#ffcc00', weight: 8, opacity: 0.95, lineCap: 'butt', lineJoin: 'miter' }).addTo(map);
     }
 
     async function routeTo(to) {
