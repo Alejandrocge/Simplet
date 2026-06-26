@@ -40,30 +40,31 @@
       box-shadow: inset -2px -2px 0 0 rgba(255,255,255,0.22), inset 2px 2px 0 0 rgba(0,0,0,0.5);
     }
 
-    /* map fills the middle; grass green shows through while tiles load */
+    /* map fills the middle; subtle background shows while tiles load */
     #mapwrap { flex: 1 1 auto; position: relative; }
-    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #7ab256; }
+    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #dde4d0; }
 
-    /* blocky, grass-green tinted basemap */
+    /* blocky basemap, only lightly punched up (grass comes from the overlay) */
     .leaflet-tile { image-rendering: pixelated; }
-    .leaflet-tile-pane { filter: saturate(1.7) sepia(0.45) hue-rotate(46deg) brightness(0.97) contrast(1.05); }
+    .leaflet-tile-pane { filter: saturate(1.08) contrast(1.03); }
 
-    /* Minecraft grass texture over the tiles (z 300 sits above the tile pane at
-       200 but below Leaflet's overlay/marker panes, so route + pointer stay crisp) */
+    /* Light Minecraft grass texture over the tiles (z 300 sits above the tile
+       pane at 200 but below Leaflet's overlay/marker panes, so route + marker
+       stay crisp). Kept subtle so streets/buildings stay readable. */
     #grass {
       position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 300;
       background-image: url('textures/grass.png'); background-repeat: repeat;
       background-size: 48px 48px; image-rendering: pixelated;
-      opacity: 0.35; pointer-events: none;
+      opacity: 0.20; pointer-events: none;
     }
 
-    /* Minecraft-map white pointer (inline SVG); rotates to GPS heading. */
-    .mc-pointer { position: relative; width: 24px; height: 24px; }
-    .mc-pointer svg, #centerdot svg { display: block; }
+    /* Position marker: the Minecraft pixel-art image, upright. */
+    .mc-marker { width: 20px; height: 28px; image-rendering: pixelated; display: block; }
     #centerdot {
-      position: absolute; top: 50%; left: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px;
+      position: absolute; top: 50%; left: 50%; width: 20px; height: 28px; margin: -14px 0 0 -10px;
       z-index: 500; display: none; pointer-events: none;
-      -webkit-transform-origin: 50% 50%; transform-origin: 50% 50%;
+      background-image: url('pointer.png'); background-size: 20px 28px;
+      background-repeat: no-repeat; image-rendering: pixelated;
     }
 
     #msg {
@@ -114,7 +115,7 @@
   <div id="mapwrap">
     <div id="map"></div>
     <div id="grass"></div>
-    <div id="centerdot" class="mc-pointer"></div>
+    <div id="centerdot"></div>
     <div id="msg"></div>
     <div id="results"></div>
   </div>
@@ -156,11 +157,7 @@
     var routeCoords = [];     // [[lat,lon], ...] full geometry
     var stepIndex = 0;
     var hasDest = false, navMode = false;
-    var lastReroute = 0, deviceMsg = null, lastFixT = 0, lastBearing = 0;
-
-    // Minecraft-map player pointer: white arrow with a concave base + dark outline.
-    var POINTER_SVG = '<svg viewBox="0 0 12 12" width="24" height="24" shape-rendering="crispEdges">'
-      + '<polygon points="6,0 11,12 6,9 1,12" fill="#ffffff" stroke="#202020" stroke-width="1" stroke-linejoin="miter"/></svg>';
+    var lastReroute = 0, deviceMsg = null, lastFixT = 0;
 
     // ---------- helpers ----------
     function el(id) { return document.getElementById(id); }
@@ -227,13 +224,12 @@
       var ll = [lat, lng];
       if (!userMarker) {
         userMarker = L.marker(ll, {
-          icon: L.divIcon({ className: '', html: '<div class="mc-pointer">' + POINTER_SVG + '</div>', iconSize: [24, 24], iconAnchor: [12, 12] }),
+          icon: L.divIcon({ className: '', html: '<img class="mc-marker" src="pointer.png">', iconSize: [20, 28], iconAnchor: [10, 14] }),
           interactive: false, keyboard: false
         }).addTo(map);
       } else {
         userMarker.setLatLng(ll);
       }
-      setHeading(bearing);
       if (navMode) {
         // Glide the map under the fixed centre dot. Match the glide to the actual
         // GPS interval so motion is continuous instead of pan-then-pause.
@@ -246,19 +242,6 @@
         map.setView(ll, 16);
       }
     };
-
-    function setHeading(bearing) {
-      if (typeof bearing !== 'number' || bearing < 0) return;  // only valid while moving
-      lastBearing = bearing;
-      var t = 'rotate(' + bearing + 'deg)';
-      var cd = el('centerdot');
-      cd.style.webkitTransform = t; cd.style.transform = t;
-      if (userMarker && userMarker.getElement) {
-        var elem = userMarker.getElement();
-        var inner = elem && elem.querySelector('.mc-pointer');
-        if (inner) { inner.style.webkitTransform = t; inner.style.transform = t; }
-      }
-    }
 
     // ---------- search (Nominatim) ----------
     async function search() {
@@ -431,7 +414,6 @@
     }
 
     // ---------- wire up ----------
-    el('centerdot').innerHTML = POINTER_SVG;
     el('go').onclick = search;
     el('start').onclick = startNav;
     el('end').onclick = endNav;
