@@ -41,21 +41,21 @@
     }
 
     /* map fills the middle; subtle background shows while tiles load */
-    #mapwrap { flex: 1 1 auto; position: relative; }
+    #mapwrap { flex: 1 1 auto; position: relative; isolation: isolate; }
     #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #dde4d0; }
 
     /* blocky basemap, only lightly punched up (grass comes from the overlay) */
     .leaflet-tile { image-rendering: pixelated; }
     .leaflet-tile-pane { filter: saturate(1.08) contrast(1.03); }
 
-    /* Light Minecraft grass texture over the tiles (z 300 sits above the tile
-       pane at 200 but below Leaflet's overlay/marker panes, so route + marker
-       stay crisp). Kept subtle so streets/buildings stay readable. */
+    /* Minecraft grass texture multiplied onto the tiles so the pattern shows on
+       the actual surfaces (z 300: above the tile pane at 200, below Leaflet's
+       overlay/marker panes, so route + marker stay crisp). */
     #grass {
       position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 300;
       background-image: url('textures/grass.png'); background-repeat: repeat;
-      background-size: 48px 48px; image-rendering: pixelated;
-      opacity: 0.20; pointer-events: none;
+      background-size: 56px 56px; image-rendering: pixelated;
+      opacity: 0.6; mix-blend-mode: multiply; pointer-events: none;
     }
 
     /* Position marker: the Minecraft pixel-art image, upright. */
