@@ -114,8 +114,11 @@ class MainActivity : Activity(), LocationListener {
     }
 
     private fun pushLocation(loc: Location) {
+        // bearing is only meaningful while moving; -1 tells the page to keep the
+        // previous heading.
+        val bearing = if (loc.hasBearing()) loc.bearing else -1f
         web.evaluateJavascript(
-            "setLocation(${loc.latitude}, ${loc.longitude}, ${loc.accuracy});",
+            "setLocation(${loc.latitude}, ${loc.longitude}, ${loc.accuracy}, $bearing);",
             null
         )
     }

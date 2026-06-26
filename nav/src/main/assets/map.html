@@ -48,12 +48,22 @@
     .leaflet-tile { image-rendering: pixelated; }
     .leaflet-tile-pane { filter: saturate(1.55) sepia(0.35) hue-rotate(42deg) brightness(0.98) contrast(1.06); }
 
-    /* square (blocky) position dot */
+    /* Minecraft-map style white pointer (border-triangle so even old WebViews
+       render it); rotates to the GPS heading. */
+    .mc-pointer { position: relative; width: 24px; height: 24px; }
+    .mc-pointer::before {
+      content: ''; position: absolute; left: 50%; top: 50%;
+      width: 0; height: 0; margin: -10px 0 0 -10px;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 20px solid #ffffff;
+      -webkit-filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+      filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+    }
     #centerdot {
-      position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
-      margin: -8px 0 0 -8px; border-radius: 0;
-      background: #3aa0ff; border: 3px solid #f4f4f4; box-shadow: 0 0 0 2px #1a1a1a;
+      position: absolute; top: 50%; left: 50%; margin: -12px 0 0 -12px;
       z-index: 500; display: none; pointer-events: none;
+      -webkit-transform-origin: 50% 50%; transform-origin: 50% 50%;
     }
 
     #msg {
@@ -103,7 +113,7 @@
 
   <div id="mapwrap">
     <div id="map"></div>
-    <div id="centerdot"></div>
+    <div id="centerdot" class="mc-pointer"></div>
     <div id="msg"></div>
     <div id="results"></div>
   </div>
@@ -145,7 +155,7 @@
     var routeCoords = [];     // [[lat,lon], ...] full geometry
     var stepIndex = 0;
     var hasDest = false, navMode = false;
-    var lastReroute = 0, deviceMsg = null, lastFixT = 0;
+    var lastReroute = 0, deviceMsg = null, lastFixT = 0, lastBearing = 0;
 
     // ---------- helpers ----------
     function el(id) { return document.getElementById(id); }
@@ -208,13 +218,17 @@
       setTimeout(function () { if (el('msg').textContent === deviceMsg) setMsg(''); }, 6000);
     };
 
-    window.setLocation = function (lat, lng) {
+    window.setLocation = function (lat, lng, accuracy, bearing) {
       var ll = [lat, lng];
       if (!userMarker) {
-        userMarker = L.circleMarker(ll, { radius: 8, color: '#1e88e5', fillColor: '#1e88e5', fillOpacity: 0.9 }).addTo(map);
+        userMarker = L.marker(ll, {
+          icon: L.divIcon({ className: '', html: '<div class="mc-pointer"></div>', iconSize: [24, 24], iconAnchor: [12, 12] }),
+          interactive: false, keyboard: false
+        }).addTo(map);
       } else {
         userMarker.setLatLng(ll);
       }
+      setHeading(bearing);
       if (navMode) {
         // Glide the map under the fixed centre dot. Match the glide to the actual
         // GPS interval so motion is continuous instead of pan-then-pause.
@@ -227,6 +241,19 @@
         map.setView(ll, 16);
       }
     };
+
+    function setHeading(bearing) {
+      if (typeof bearing !== 'number' || bearing < 0) return;  // only valid while moving
+      lastBearing = bearing;
+      var t = 'rotate(' + bearing + 'deg)';
+      var cd = el('centerdot');
+      cd.style.webkitTransform = t; cd.style.transform = t;
+      if (userMarker && userMarker.getElement) {
+        var elem = userMarker.getElement();
+        var inner = elem && elem.querySelector('.mc-pointer');
+        if (inner) { inner.style.webkitTransform = t; inner.style.transform = t; }
+      }
+    }
 
     // ---------- search (Nominatim) ----------
     async function search() {
@@ -340,14 +367,14 @@
       setNavButtons('end');
       // Position is shown by the fixed centre dot; hide the moving marker.
       el('centerdot').style.display = 'block';
-      if (userMarker) userMarker.setStyle({ opacity: 0, fillOpacity: 0 });
+      if (userMarker) userMarker.setOpacity(0);
       if (userMarker) { map.setView(userMarker.getLatLng(), 17); updateGuidance(toLL(userMarker.getLatLng())); }
     }
 
     function endNav() {
       navMode = false; hasDest = false; dest = null; maneuvers = []; routeCoords = [];
       el('centerdot').style.display = 'none';
-      if (userMarker) userMarker.setStyle({ opacity: 1, fillOpacity: 0.9 });
+      if (userMarker) userMarker.setOpacity(1);
       if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
       if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
       showNav(false);
