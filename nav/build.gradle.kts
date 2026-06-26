@@ -11,8 +11,8 @@ android {
         applicationId = "com.simplet.nav"
         minSdk = 21
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.14.0-nav"
+        versionCode = 15
+        versionName = "0.15.0-nav"
     }
 
     signingConfigs {

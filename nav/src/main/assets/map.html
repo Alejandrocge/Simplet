@@ -41,29 +41,29 @@
     }
 
     /* map fills the middle; subtle background shows while tiles load */
-    #mapwrap { flex: 1 1 auto; position: relative; isolation: isolate; }
+    #mapwrap { flex: 1 1 auto; position: relative; }
     #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #dde4d0; }
 
     /* blocky basemap, only lightly punched up (grass comes from the overlay) */
     .leaflet-tile { image-rendering: pixelated; }
     .leaflet-tile-pane { filter: saturate(1.08) contrast(1.03); }
 
-    /* Minecraft grass texture multiplied onto the tiles so the pattern shows on
-       the actual surfaces (z 300: above the tile pane at 200, below Leaflet's
-       overlay/marker panes, so route + marker stay crisp). */
+    /* Minecraft grass texture over the tiles (z 300: above the tile pane at 200,
+       below Leaflet's overlay/marker panes, so route + marker stay crisp). Plain
+       overlay — blend modes don't render in this unit's software WebView. */
     #grass {
       position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 300;
       background-image: url('textures/grass.png'); background-repeat: repeat;
       background-size: 56px 56px; image-rendering: pixelated;
-      opacity: 0.6; mix-blend-mode: multiply; pointer-events: none;
+      opacity: 0.4; pointer-events: none;
     }
 
     /* Position marker: the Minecraft pixel-art image, upright. */
-    .mc-marker { width: 20px; height: 28px; image-rendering: pixelated; display: block; }
+    .mc-marker { width: 20px; height: 32px; image-rendering: pixelated; display: block; }
     #centerdot {
-      position: absolute; top: 50%; left: 50%; width: 20px; height: 28px; margin: -14px 0 0 -10px;
+      position: absolute; top: 50%; left: 50%; width: 20px; height: 32px; margin: -16px 0 0 -10px;
       z-index: 500; display: none; pointer-events: none;
-      background-image: url('pointer.png'); background-size: 20px 28px;
+      background-image: url('pointer.png'); background-size: 20px 32px;
       background-repeat: no-repeat; image-rendering: pixelated;
     }
 
@@ -224,7 +224,7 @@
       var ll = [lat, lng];
       if (!userMarker) {
         userMarker = L.marker(ll, {
-          icon: L.divIcon({ className: '', html: '<img class="mc-marker" src="pointer.png">', iconSize: [20, 28], iconAnchor: [10, 14] }),
+          icon: L.divIcon({ className: '', html: '<img class="mc-marker" src="pointer.png">', iconSize: [20, 32], iconAnchor: [10, 16] }),
           interactive: false, keyboard: false
         }).addTo(map);
       } else {
